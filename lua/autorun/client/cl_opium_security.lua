@@ -3,7 +3,9 @@
     Gère l'affichage ESP, la vue caméra, le HUD et l'interface VGUI.
 ]]
 
-include("sh_opium_config.lua")
+-- Sécurité : s'assurer que la table globale existe
+OpiumSecurity = OpiumSecurity or {}
+OpiumSecurity.Config = OpiumSecurity.Config or {}
 
 -- ============================================================================
 -- VARIABLES LOCALES
@@ -162,8 +164,13 @@ hook.Add("HUDPaint", "OpiumSecurity_CameraESP", function()
     surface.DrawRect(0, sh - 40, sw, 40)
 
     -- Nom de la caméra en haut à gauche
+    local camLabel = currentCamera:GetCamName() .. "  |  EN DIRECT"
+    local camGroup = currentCamera:GetCamGroup()
+    if camGroup and camGroup ~= "" then
+        camLabel = camLabel .. "  |  " .. camGroup
+    end
     DrawTextShadow(
-        currentCamera:GetCamName() .. "  |  EN DIRECT",
+        camLabel,
         "OpiumSec_Subtitle", 15, 12,
         colors.Accent, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP
     )

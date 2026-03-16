@@ -4,8 +4,9 @@
     et le système d'avis de recherche.
 ]]
 
--- Chargement de la config partagée (déjà chargée via autorun, mais sécurité)
-include("sh_opium_config.lua")
+-- Sécurité : s'assurer que la table globale existe
+OpiumSecurity = OpiumSecurity or {}
+OpiumSecurity.Config = OpiumSecurity.Config or {}
 
 -- ============================================================================
 -- INITIALISATION RÉSEAU
@@ -36,7 +37,7 @@ local function IsPlayerSeenByCamera(ply)
 
     local plyPos = ply:GetPos() + Vector(0, 0, 40) -- Centre du joueur
 
-    for _, cam in ipairs(OpiumSecurity.Cameras or {}) do
+    for _, cam in ipairs(ents.FindByClass("ent_security_cam")) do
         if IsValid(cam) and cam:GetCamActive() then
             local camPos = cam:GetViewPos and cam:GetViewPos() or cam:GetPos()
             local camAng = cam:GetViewAngle and cam:GetViewAngle() or cam:GetAngles()
@@ -158,7 +159,7 @@ end)
 -- Le joueur quitte la vue caméra
 net.Receive("opium_camera_exit", function(len, ply)
     -- Libérer toutes les caméras utilisées par ce joueur
-    for _, cam in ipairs(OpiumSecurity.Cameras or {}) do
+    for _, cam in ipairs(ents.FindByClass("ent_security_cam")) do
         if IsValid(cam) and cam:GetCamUser() == ply then
             cam:SetCamUser(NULL)
         end
@@ -175,10 +176,13 @@ net.Receive("opium_camera_switch", function(len, ply)
         currentCam:SetCamUser(NULL)
     end
 
-    -- Trouver la caméra suivante/précédente
+    -- Déterminer le groupe de la caméra actuelle
+    local currentGroup = IsValid(currentCam) and currentCam:GetCamGroup() or ""
+
+    -- Trouver les caméras du même groupe (via ents.FindByClass pour fiabilité)
     local cameras = {}
-    for _, cam in ipairs(OpiumSecurity.Cameras or {}) do
-        if IsValid(cam) and cam:GetCamActive() then
+    for _, cam in ipairs(ents.FindByClass("ent_security_cam")) do
+        if IsValid(cam) and cam:GetCamActive() and cam:GetCamGroup() == currentGroup then
             table.insert(cameras, cam)
         end
     end
@@ -186,6 +190,16 @@ net.Receive("opium_camera_switch", function(len, ply)
     if #cameras == 0 then
         net.Start("opium_camera_exit")
         net.Send(ply)
+        return
+    end
+
+    -- S'il n'y a qu'une seule caméra dans le groupe, ne rien faire
+    if #cameras == 1 then
+        ply:ChatPrint("[Opium Security] Aucune autre caméra dans ce groupe.")
+        -- Ré-attribuer l'utilisateur à la caméra actuelle
+        if IsValid(currentCam) then
+            currentCam:SetCamUser(ply)
+        end
         return
     end
 
@@ -245,7 +259,7 @@ hook.Add("PlayerDisconnected", "OpiumSecurity_Cleanup", function(ply)
     detectionCooldowns[steamID] = nil
 
     -- Libérer les caméras
-    for _, cam in ipairs(OpiumSecurity.Cameras or {}) do
+    for _, cam in ipairs(ents.FindByClass("ent_security_cam")) do
         if IsValid(cam) and cam:GetCamUser() == ply then
             cam:SetCamUser(NULL)
         end

@@ -14,6 +14,7 @@ ENT.AdminOnly    = false
 -- Networked variable : ID unique de la caméra pour le système
 function ENT:SetupDataTables()
     self:NetworkVar("String", 0, "CamName")
+    self:NetworkVar("String", 1, "CamGroup") -- Groupe de caméras liées
     self:NetworkVar("Bool", 0, "CamActive")
     self:NetworkVar("Entity", 0, "CamUser") -- Joueur qui regarde actuellement
 end

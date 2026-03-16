@@ -18,6 +18,7 @@ function ENT:Draw()
         local statusColor = self:GetCamActive()
             and OpiumSecurity.Config.Colors.Success
             or OpiumSecurity.Config.Colors.Danger
+        local group = self:GetCamGroup()
 
         draw.SimpleText(
             self:GetCamName(),
@@ -31,5 +32,13 @@ function ENT:Draw()
             0, 16, statusColor,
             TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER
         )
+        if group and group ~= "" then
+            draw.SimpleText(
+                group,
+                "DermaDefault",
+                0, 32, OpiumSecurity.Config.Colors.Accent,
+                TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER
+            )
+        end
     cam.End3D2D()
 end

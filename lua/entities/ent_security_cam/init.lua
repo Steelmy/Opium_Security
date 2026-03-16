@@ -6,6 +6,16 @@ AddCSLuaFile("shared.lua")
 AddCSLuaFile("cl_init.lua")
 include("shared.lua")
 
+OpiumSecurity = OpiumSecurity or {}
+OpiumSecurity.Config = OpiumSecurity.Config or {}
+
+util.AddNetworkString("opium_camera_open")
+util.AddNetworkString("opium_camera_exit")
+util.AddNetworkString("opium_camera_switch")
+util.AddNetworkString("opium_camera_notify")
+util.AddNetworkString("opium_camera_wanted")
+util.AddNetworkString("opium_camera_viewdata")
+
 function ENT:Initialize()
     self:SetModel("models/maxofs2d/camera.mdl")
     self:PhysicsInit(SOLID_VPHYSICS)
@@ -20,6 +30,7 @@ function ENT:Initialize()
 
     self:SetCamActive(true)
     self:SetCamName("CAM-" .. math.random(1000, 9999))
+    self:SetCamGroup("")
 
     -- Enregistrer la caméra dans le système global
     OpiumSecurity.Cameras = OpiumSecurity.Cameras or {}
