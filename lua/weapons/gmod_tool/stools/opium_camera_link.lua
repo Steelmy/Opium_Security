@@ -217,6 +217,8 @@ if CLIENT then
     -- PANNEAU DE CONFIGURATION (Menu Q -> Outils)
     -- ============================================================================
 
+    local selectedGroupName = nil
+
     function TOOL.BuildCPanel(CPanel)
         CPanel:AddControl("Header", {
             Description = "Relie les caméras de sécurité en groupes.\n\nClic gauche : ajouter au groupe\nClic droit : retirer du groupe\nRechargement : nouveau groupe"
@@ -277,7 +279,217 @@ if CLIENT then
         -- Clic sur un groupe pour remplir le champ
         listView.OnRowSelected = function(_, _, row)
             local groupName = row:GetColumnText(1)
+            selectedGroupName = groupName
             RunConsoleCommand("opium_camera_link_group", groupName)
         end
+
+        -- Bouton configurer les alertes
+        local btnAlerts = vgui.Create("DButton", CPanel)
+        btnAlerts:SetText("Configurer les alertes")
+        btnAlerts:SetTall(32)
+        btnAlerts:SetTextColor(Color(255, 255, 255))
+        btnAlerts.Paint = function(self, w, h)
+            local bg = self:IsHovered() and Color(0, 140, 220, 255) or Color(0, 120, 200, 255)
+            if not selectedGroupName then bg = Color(80, 80, 80, 255) end
+            draw.RoundedBox(4, 0, 0, w, h, bg)
+        end
+        btnAlerts.DoClick = function()
+            if not selectedGroupName then
+                chat.AddText(Color(255, 80, 80), "[Opium Security] ", color_white, "Sélectionnez d'abord un groupe dans la liste.")
+                return
+            end
+            OpenGroupJobsConfig(selectedGroupName)
+        end
+        CPanel:AddItem(btnAlerts)
     end
+
+    -- ========================================================================
+    -- FENÊTRE DE CONFIGURATION DES ALERTES PAR GROUPE
+    -- ========================================================================
+
+    local jobConfigFrame = nil
+
+    function OpenGroupJobsConfig(groupName)
+        -- Fermer l'ancienne fenêtre si elle existe
+        if IsValid(jobConfigFrame) then jobConfigFrame:Remove() end
+
+        local colors = OpiumSecurity and OpiumSecurity.Config and OpiumSecurity.Config.Colors
+        if not colors then return end
+
+        jobConfigFrame = vgui.Create("DFrame")
+        jobConfigFrame:SetSize(420, 520)
+        jobConfigFrame:Center()
+        jobConfigFrame:SetTitle("")
+        jobConfigFrame:MakePopup()
+        jobConfigFrame:SetDraggable(true)
+        jobConfigFrame:SetSizable(false)
+        jobConfigFrame.Paint = function(self, w, h)
+            draw.RoundedBox(8, 0, 0, w, h, colors.Background)
+            surface.SetDrawColor(colors.Border)
+            surface.DrawOutlinedRect(0, 0, w, h, 1)
+
+            -- Barre d'accent en haut
+            surface.SetDrawColor(colors.Accent)
+            surface.DrawRect(0, 0, w, 3)
+
+            -- Titre
+            draw.SimpleText("Configuration des alertes", "OpiumSec_Subtitle", w / 2, 18, colors.Accent, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            draw.SimpleText("Groupe : " .. groupName, "OpiumSec_Body", w / 2, 42, colors.Text, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            draw.SimpleText("Cochez les jobs qui recevront les notifications.", "OpiumSec_Small", w / 2, 64, colors.TextDim, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        end
+
+        -- Checkbox list container
+        local scrollPanel = vgui.Create("DScrollPanel", jobConfigFrame)
+        scrollPanel:SetPos(15, 88)
+        scrollPanel:SetSize(390, 370)
+
+        local sbar = scrollPanel:GetVBar()
+        sbar:SetHideButtons(true)
+        sbar.Paint = function() end
+        sbar.btnGrip.Paint = function(self, w, h)
+            draw.RoundedBox(4, w / 2 - 2, 0, 4, h, colors.AccentDark)
+        end
+
+        -- Table pour stocker les checkboxes
+        local jobChecks = {}
+
+        -- Récupérer les jobs DarkRP
+        local allJobs = {}
+        if RPExtraTeams then
+            for _, jobData in ipairs(RPExtraTeams) do
+                table.insert(allJobs, {
+                    id = jobData.team,
+                    name = jobData.name or "Inconnu",
+                    color = jobData.color or Color(255, 255, 255),
+                })
+            end
+        else
+            -- Fallback : utiliser les teams du moteur
+            for id, data in pairs(team.GetAllTeams()) do
+                if id > 0 and id < 1000 then
+                    table.insert(allJobs, {
+                        id = id,
+                        name = data.Name or "Team " .. id,
+                        color = team.GetColor(id) or Color(255, 255, 255),
+                    })
+                end
+            end
+        end
+
+        -- Trier par nom
+        table.sort(allJobs, function(a, b) return a.name < b.name end)
+
+        for _, job in ipairs(allJobs) do
+            local entry = vgui.Create("DPanel", scrollPanel)
+            entry:SetTall(36)
+            entry:Dock(TOP)
+            entry:DockMargin(0, 2, 0, 0)
+
+            local isChecked = false
+
+            entry.Paint = function(self, w, h)
+                local bg = self:IsHovered() and colors.BackgroundLight or Color(25, 25, 35, 255)
+                draw.RoundedBox(4, 0, 0, w, h, bg)
+
+                -- Pastille couleur du job
+                draw.RoundedBox(3, 8, 10, 16, 16, job.color)
+
+                -- Nom du job
+                draw.SimpleText(job.name, "OpiumSec_Body", 32, h / 2, colors.Text, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+
+                -- Indicateur de sélection
+                if isChecked then
+                    draw.RoundedBox(3, w - 36, 8, 20, 20, colors.Accent)
+                    draw.SimpleText("✓", "OpiumSec_ESP", w - 26, h / 2, color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+                else
+                    draw.RoundedBox(3, w - 36, 8, 20, 20, Color(50, 50, 60, 255))
+                    surface.SetDrawColor(colors.Border)
+                    surface.DrawOutlinedRect(w - 36, 8, 20, 20, 1)
+                end
+            end
+
+            entry:SetCursor("hand")
+            entry.OnMousePressed = function()
+                isChecked = not isChecked
+            end
+
+            jobChecks[job.id] = function() return isChecked end
+
+            -- Setter pour quand on reçoit la config du serveur
+            entry._setChecked = function(val) isChecked = val end
+            entry._jobID = job.id
+        end
+
+        -- Stocker les entries pour mise à jour
+        jobConfigFrame._entries = scrollPanel:GetCanvas():GetChildren()
+        jobConfigFrame._jobChecks = jobChecks
+
+        -- Bouton sauvegarder
+        local btnSave = vgui.Create("DButton", jobConfigFrame)
+        btnSave:SetPos(15, 470)
+        btnSave:SetSize(185, 36)
+        btnSave:SetText("")
+        btnSave.Paint = function(self, w, h)
+            local bg = self:IsHovered() and Color(0, 160, 230, 255) or colors.Accent
+            draw.RoundedBox(6, 0, 0, w, h, bg)
+            draw.SimpleText("Sauvegarder", "OpiumSec_Body", w / 2, h / 2, color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        end
+        btnSave.DoClick = function()
+            local selectedJobs = {}
+            for jobID, getChecked in pairs(jobChecks) do
+                if getChecked() then
+                    table.insert(selectedJobs, jobID)
+                end
+            end
+
+            net.Start("opium_group_jobs_update")
+                net.WriteString(groupName)
+                net.WriteUInt(#selectedJobs, 8)
+                for _, jobID in ipairs(selectedJobs) do
+                    net.WriteInt(jobID, 16)
+                end
+            net.SendToServer()
+
+            if IsValid(jobConfigFrame) then jobConfigFrame:Remove() end
+        end
+
+        -- Bouton annuler
+        local btnCancel = vgui.Create("DButton", jobConfigFrame)
+        btnCancel:SetPos(220, 470)
+        btnCancel:SetSize(185, 36)
+        btnCancel:SetText("")
+        btnCancel.Paint = function(self, w, h)
+            local bg = self:IsHovered() and colors.BackgroundLight or colors.Panel
+            draw.RoundedBox(6, 0, 0, w, h, bg)
+            draw.SimpleText("Annuler", "OpiumSec_Body", w / 2, h / 2, colors.TextDim, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        end
+        btnCancel.DoClick = function()
+            if IsValid(jobConfigFrame) then jobConfigFrame:Remove() end
+        end
+
+        -- Demander la config actuelle au serveur
+        net.Start("opium_group_jobs_request")
+            net.WriteString(groupName)
+        net.SendToServer()
+    end
+
+    -- Réception de la config du serveur
+    net.Receive("opium_group_jobs_update", function()
+        local groupName = net.ReadString()
+        local count = net.ReadUInt(8)
+        local jobs = {}
+        for i = 1, count do
+            jobs[net.ReadInt(16)] = true
+        end
+
+        -- Mettre à jour les checkboxes si la fenêtre est ouverte
+        if not IsValid(jobConfigFrame) then return end
+        if not jobConfigFrame._entries then return end
+
+        for _, entry in ipairs(jobConfigFrame._entries) do
+            if IsValid(entry) and entry._setChecked and entry._jobID then
+                entry._setChecked(jobs[entry._jobID] == true)
+            end
+        end
+    end)
 end

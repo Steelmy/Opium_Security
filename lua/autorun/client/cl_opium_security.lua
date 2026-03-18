@@ -223,15 +223,55 @@ hook.Add("HUDPaint", "OpiumSecurity_CameraESP", function()
         local wanted = IsPlayerWanted(ply)
         local recentlyDetected = detectedPlayers[ply] and detectedPlayers[ply] > time
 
+        -- ===== INFORMATIONS DU JOUEUR =====
+        local rpName = GetRPName(ply)
+        local jobName = GetJobName(ply)
+        local nameColor = wanted and colors.Danger or colors.Accent
+
+        -- Récupérer la raison de recherche
+        local wantedReason = ""
+        if wanted or recentlyDetected then
+            wantedReason = ply:GetNWString("opium_wanted_reason", "")
+            if wantedReason == "" and ply.getDarkRPVar then
+                wantedReason = ply:getDarkRPVar("wantedReason") or ""
+            end
+            if wantedReason == "" then
+                wantedReason = "Infraction détectée"
+            end
+        end
+
+        -- Calculer les dimensions du texte
+        surface.SetFont("OpiumSec_ESP")
+        local nameW = select(1, surface.GetTextSize(rpName))
+        local jobW = select(1, surface.GetTextSize(jobName))
+        local reasonW = 0
+        if wantedReason ~= "" then
+            surface.SetFont("OpiumSec_ESPSmall")
+            reasonW = select(1, surface.GetTextSize(wantedReason))
+        end
+        local textW = math.max(nameW, jobW, reasonW) + 20
+
+        -- Calculer la hauteur totale du bloc d'info
+        local infoH = 34 -- nom + job
+        if wantedReason ~= "" then
+            infoH = infoH + 16 -- raison
+        end
+        if wanted or recentlyDetected then
+            infoH = infoH + 18 -- label RECHERCHÉ
+        end
+
+        -- Position Y du bloc d'info (au-dessus de la tête)
+        local infoY = sy - infoH - 4
+
         -- ===== CADRE ROUGE CLIGNOTANT (si recherché ou détecté) =====
         if wanted or recentlyDetected then
             local blinkAlpha = math.abs(math.sin(time / cfg.BlinkSpeed * math.pi)) * 200 + 55
 
-            -- Calculer la bounding box approximative
+            -- Calculer la bounding box du joueur
             local boxH = math.abs(feetScreen.y - screenPos.y) + 20
             local boxW = boxH * 0.5
             local boxX = sx - boxW / 2
-            local boxY = sy - 10
+            local boxY = screenPos.y - 10
 
             -- Cadre rouge clignotant
             surface.SetDrawColor(255, 50, 50, blinkAlpha)
@@ -252,37 +292,37 @@ hook.Add("HUDPaint", "OpiumSecurity_CameraESP", function()
             -- Bas-droite
             surface.DrawRect(boxX + boxW - cornerLen, boxY + boxH - 3, cornerLen, 3)
             surface.DrawRect(boxX + boxW - 3, boxY + boxH - cornerLen, 3, cornerLen)
-
-            -- Label "RECHERCHÉ"
-            DrawTextShadow(
-                "⚠ RECHERCHÉ", "OpiumSec_ESP",
-                sx, sy - 28, Color(255, 80, 80, blinkAlpha),
-                TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM
-            )
         end
 
-        -- ===== INFORMATIONS DU JOUEUR =====
-        local rpName = GetRPName(ply)
-        local jobName = GetJobName(ply)
-        local nameColor = wanted and colors.Danger or colors.Accent
+        -- ===== BLOC D'INFORMATIONS AU-DESSUS DE LA TÊTE =====
+        local currentY = infoY
 
-        -- Fond semi-transparent derrière le texte
-        local textW = math.max(
-            surface.GetTextSize(rpName) or 0,
-            surface.GetTextSize(jobName) or 0
-        )
-        surface.SetFont("OpiumSec_ESP")
-        textW = select(1, surface.GetTextSize(rpName))
-        local tw2 = select(1, surface.GetTextSize(jobName))
-        textW = math.max(textW, tw2) + 16
+        -- Fond semi-transparent
+        draw.RoundedBox(4, sx - textW / 2, infoY, textW, infoH, Color(0, 0, 0, 140))
 
-        draw.RoundedBox(4, sx - textW / 2, sy - 8, textW, 34, Color(0, 0, 0, 140))
+        -- Label RECHERCHÉ (si applicable)
+        if wanted or recentlyDetected then
+            local blinkAlpha = math.abs(math.sin(time / cfg.BlinkSpeed * math.pi)) * 200 + 55
+            DrawTextShadow(
+                "⚠ RECHERCHÉ", "OpiumSec_ESP",
+                sx, currentY + 2, Color(255, 80, 80, blinkAlpha),
+                TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP
+            )
+            currentY = currentY + 18
+        end
 
         -- Nom RP
-        DrawTextShadow(rpName, "OpiumSec_ESP", sx, sy, nameColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        DrawTextShadow(rpName, "OpiumSec_ESP", sx, currentY, nameColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        currentY = currentY + 16
 
         -- Job
-        DrawTextShadow(jobName, "OpiumSec_ESPSmall", sx, sy + 16, colors.TextDim, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        DrawTextShadow(jobName, "OpiumSec_ESPSmall", sx, currentY, colors.TextDim, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        currentY = currentY + 16
+
+        -- Raison de recherche
+        if wantedReason ~= "" then
+            DrawTextShadow(wantedReason, "OpiumSec_ESPSmall", sx, currentY, Color(255, 160, 100, 220), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        end
     end
 end)
 
