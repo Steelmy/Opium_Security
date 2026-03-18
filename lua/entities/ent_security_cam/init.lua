@@ -123,6 +123,12 @@ net.Receive("opium_camera_switch", function(len, ply)
 
     local currentGroup = currentCam:GetCamGroup()
 
+    -- Pas de switch si la caméra n'appartient à aucun groupe
+    if not currentGroup or currentGroup == "" then
+        ply:ChatPrint("[Opium Security] Cette caméra n'appartient à aucun groupe.")
+        return
+    end
+
     -- Libérer la caméra actuelle
     currentCam:SetCamUser(NULL)
 
