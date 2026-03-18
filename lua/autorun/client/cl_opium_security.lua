@@ -349,11 +349,19 @@ end)
 -- ============================================================================
 
 local function OpenCameraTerminal(camera)
-    if IsValid(cameraPanel) then cameraPanel:Remove() end
+    -- Nettoyer l'ancien sidePanel (non-enfant de cameraPanel)
+    if IsValid(cameraPanel) then
+        if IsValid(cameraPanel.sidePanel) then
+            cameraPanel.sidePanel:Remove()
+        end
+        cameraPanel:Remove()
+    end
+    timer.Remove("opium_refresh_playerlist")
     if not IsValid(camera) then return end
 
     currentCamera = camera
     isViewingCamera = true
+    gui.EnableScreenClicker(true)
 
     local colors = OpiumSecurity.Config.Colors
     local sw, sh = ScrW(), ScrH()
@@ -379,6 +387,7 @@ local function OpenCameraTerminal(camera)
         DrawTextShadow("◀ Précédent", "OpiumSec_Small", w / 2, h / 2, colors.Text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
     end
     btnPrev.DoClick = function()
+        if not IsValid(currentCamera) then return end
         net.Start("opium_camera_switch")
             net.WriteInt(-1, 8)
             net.WriteEntity(currentCamera)
@@ -410,6 +419,7 @@ local function OpenCameraTerminal(camera)
         DrawTextShadow("Suivant ▶", "OpiumSec_Small", w / 2, h / 2, colors.Text, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
     end
     btnNext.DoClick = function()
+        if not IsValid(currentCamera) then return end
         net.Start("opium_camera_switch")
             net.WriteInt(1, 8)
             net.WriteEntity(currentCamera)
@@ -570,8 +580,11 @@ end
 
 --- Ferme la vue caméra et nettoie l'interface
 function CloseCameraView()
+    if not isViewingCamera then return end
+
     isViewingCamera = false
     currentCamera = NULL
+    gui.EnableScreenClicker(false)
 
     if IsValid(cameraPanel) then
         if IsValid(cameraPanel.sidePanel) then
@@ -584,14 +597,18 @@ function CloseCameraView()
 
     timer.Remove("opium_refresh_playerlist")
 
-    net.Start("opium_camera_exit")
-    net.SendToServer()
+    -- Protégé : si le net échoue, la vue se ferme quand même
+    pcall(function()
+        net.Start("opium_camera_exit")
+        net.SendToServer()
+    end)
 end
 
--- Touche Échap pour quitter la vue caméra
-hook.Add("Think", "OpiumSecurity_EscapeCamera", function()
-    if isViewingCamera and input.IsKeyDown(KEY_ESCAPE) then
+-- Touche Échap pour quitter la vue caméra (PlayerBindPress intercepte avant le menu GMod)
+hook.Add("PlayerBindPress", "OpiumSecurity_EscapeCamera", function(ply, bind, pressed)
+    if isViewingCamera and pressed and bind == "cancelselect" then
         CloseCameraView()
+        return true -- Bloque l'ouverture du menu pause
     end
 end)
 
