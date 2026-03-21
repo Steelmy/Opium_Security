@@ -21,12 +21,12 @@ TOOL.Information = {
 
 if CLIENT then
     language.Add("tool.opium_camera_link.name", "Liaison Caméras")
-    language.Add("tool.opium_camera_link.desc", "Relie les caméras de sécurité en groupes de vidéosurveillance")
-    language.Add("tool.opium_camera_link.left", "Ajouter la caméra au groupe actuel")
-    language.Add("tool.opium_camera_link.right", "Retirer la caméra de son groupe")
+    language.Add("tool.opium_camera_link.desc", "Relie les caméras et moniteurs de sécurité en groupes de vidéosurveillance")
+    language.Add("tool.opium_camera_link.left", "Ajouter la caméra ou le moniteur au groupe actuel")
+    language.Add("tool.opium_camera_link.right", "Retirer la caméra ou le moniteur de son groupe")
     language.Add("tool.opium_camera_link.reload", "Finaliser et commencer un nouveau groupe")
-    language.Add("tool.opium_camera_link.0", "Clic gauche sur une caméra pour commencer un groupe")
-    language.Add("tool.opium_camera_link.1", "Clic gauche sur une autre caméra pour l'ajouter au groupe. Rechargez pour finaliser.")
+    language.Add("tool.opium_camera_link.0", "Clic gauche sur une caméra ou un moniteur pour commencer un groupe")
+    language.Add("tool.opium_camera_link.1", "Clic gauche sur une caméra/moniteur pour l'ajouter au groupe. Rechargez pour finaliser.")
 end
 
 -- État serveur : groupe actif par joueur
@@ -41,6 +41,14 @@ local function IsCamera(ent)
     return IsValid(ent) and ent:GetClass() == "ent_security_cam"
 end
 
+local function IsMonitor(ent)
+    return IsValid(ent) and ent:GetClass() == "ent_security_monitor"
+end
+
+local function IsLinkable(ent)
+    return IsCamera(ent) or IsMonitor(ent)
+end
+
 local function GetGroupCameraCount(groupName)
     if groupName == "" then return 0 end
     local count = 0
@@ -52,17 +60,28 @@ local function GetGroupCameraCount(groupName)
     return count
 end
 
+local function GetGroupMonitorCount(groupName)
+    if groupName == "" then return 0 end
+    local count = 0
+    for _, monitor in ipairs(ents.FindByClass("ent_security_monitor")) do
+        if IsValid(monitor) and monitor:GetMonitorGroup() == groupName then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 -- ============================================================================
 -- TOOL ACTIONS
 -- ============================================================================
 
 function TOOL:LeftClick(trace)
-    if not IsCamera(trace.Entity) then return false end
+    if not IsLinkable(trace.Entity) then return false end
 
     if CLIENT then return true end
 
     local ply = self:GetOwner()
-    local cam = trace.Entity
+    local ent = trace.Entity
 
     -- Si pas de groupe actif, en créer un
     if not ActiveGroups[ply] then
@@ -82,39 +101,64 @@ function TOOL:LeftClick(trace)
     end
 
     local group = ActiveGroups[ply]
-    cam:SetCamGroup(group.name)
-    group.count = group.count + 1
 
-    ply:ChatPrint("[Opium Security] " .. cam:GetCamName() .. " ajoutée au groupe \"" .. group.name .. "\" (" .. group.count .. " caméras)")
+    if IsMonitor(ent) then
+        ent:SetMonitorGroup(group.name)
+        group.count = group.count + 1
+        ply:ChatPrint("[Opium Security] Moniteur ajouté au groupe \"" .. group.name .. "\" (" .. group.count .. " éléments)")
+    else
+        ent:SetCamGroup(group.name)
+        group.count = group.count + 1
+        ply:ChatPrint("[Opium Security] " .. ent:GetCamName() .. " ajoutée au groupe \"" .. group.name .. "\" (" .. group.count .. " éléments)")
+    end
+
     ply:EmitSound("buttons/button14.wav")
 
     return true
 end
 
 function TOOL:RightClick(trace)
-    if not IsCamera(trace.Entity) then return false end
+    if not IsLinkable(trace.Entity) then return false end
 
     if CLIENT then return true end
 
     local ply = self:GetOwner()
-    local cam = trace.Entity
-    local oldGroup = cam:GetCamGroup()
+    local ent = trace.Entity
 
-    if oldGroup == "" then
-        ply:ChatPrint("[Opium Security] " .. cam:GetCamName() .. " n'appartient à aucun groupe.")
-        return true
+    if IsMonitor(ent) then
+        local oldGroup = ent:GetMonitorGroup()
+
+        if oldGroup == "" then
+            ply:ChatPrint("[Opium Security] Ce moniteur n'appartient à aucun groupe.")
+            return true
+        end
+
+        ent:SetMonitorGroup("")
+
+        if ActiveGroups[ply] and ActiveGroups[ply].name == oldGroup then
+            ActiveGroups[ply].count = math.max(0, ActiveGroups[ply].count - 1)
+        end
+
+        ply:ChatPrint("[Opium Security] Moniteur retiré du groupe \"" .. oldGroup .. "\".")
+        ply:EmitSound("buttons/button15.wav")
+    else
+        local oldGroup = ent:GetCamGroup()
+
+        if oldGroup == "" then
+            ply:ChatPrint("[Opium Security] " .. ent:GetCamName() .. " n'appartient à aucun groupe.")
+            return true
+        end
+
+        ent:SetCamGroup("")
+
+        if ActiveGroups[ply] and ActiveGroups[ply].name == oldGroup then
+            ActiveGroups[ply].count = math.max(0, ActiveGroups[ply].count - 1)
+        end
+
+        local remaining = GetGroupCameraCount(oldGroup)
+        ply:ChatPrint("[Opium Security] " .. ent:GetCamName() .. " retirée du groupe \"" .. oldGroup .. "\" (" .. remaining .. " restantes)")
+        ply:EmitSound("buttons/button15.wav")
     end
-
-    cam:SetCamGroup("")
-
-    -- Mettre à jour le compteur si c'est le groupe actif
-    if ActiveGroups[ply] and ActiveGroups[ply].name == oldGroup then
-        ActiveGroups[ply].count = math.max(0, ActiveGroups[ply].count - 1)
-    end
-
-    local remaining = GetGroupCameraCount(oldGroup)
-    ply:ChatPrint("[Opium Security] " .. cam:GetCamName() .. " retirée du groupe \"" .. oldGroup .. "\" (" .. remaining .. " restantes)")
-    ply:EmitSound("buttons/button15.wav")
 
     return true
 end
@@ -199,6 +243,38 @@ if CLIENT then
             end
         end
 
+        -- Info sur le moniteur visé
+        if IsMonitor(trace.Entity) then
+            local monitor = trace.Entity
+            local group = monitor:GetMonitorGroup()
+
+            local panelW, panelH = 300, 70
+            local px, py = cx - panelW / 2, cy + 40
+
+            if group and group ~= "" then
+                panelH = 90
+            end
+
+            draw.RoundedBox(6, px, py, panelW, panelH, ColorAlpha(colors.Background, 220))
+            surface.SetDrawColor(ColorAlpha(colors.Border, 200))
+            surface.DrawOutlinedRect(px, py, panelW, panelH, 1)
+
+            -- Barre accent en haut
+            surface.SetDrawColor(colors.Accent)
+            surface.DrawRect(px, py, panelW, 3)
+
+            draw.SimpleText("Moniteur de Sécurité", "OpiumSec_Subtitle", cx, py + 18, colors.Text, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+
+            if group and group ~= "" then
+                local camCount = GetGroupCameraCount(group)
+                local monCount = GetGroupMonitorCount(group)
+                draw.SimpleText("Groupe : " .. group, "OpiumSec_Body", cx, py + 42, colors.Accent, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+                draw.SimpleText(camCount .. " caméra(s), " .. monCount .. " moniteur(s)", "OpiumSec_Small", cx, py + 62, colors.TextDim, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            else
+                draw.SimpleText("Aucun groupe", "OpiumSec_Small", cx, py + 42, Color(255, 80, 80), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            end
+        end
+
         -- Indicateur du groupe en cours (stage 1)
         if self:GetStage() == 1 then
             local panelW, panelH = 280, 36
@@ -255,13 +331,24 @@ if CLIENT then
                 if IsValid(cam) then
                     local g = cam:GetCamGroup()
                     if g and g ~= "" then
-                        groups[g] = (groups[g] or 0) + 1
+                        groups[g] = groups[g] or { cams = 0, monitors = 0 }
+                        groups[g].cams = groups[g].cams + 1
                     end
                 end
             end
 
-            for name, count in pairs(groups) do
-                listView:AddLine(name, count)
+            for _, monitor in ipairs(ents.FindByClass("ent_security_monitor")) do
+                if IsValid(monitor) then
+                    local g = monitor:GetMonitorGroup()
+                    if g and g ~= "" then
+                        groups[g] = groups[g] or { cams = 0, monitors = 0 }
+                        groups[g].monitors = groups[g].monitors + 1
+                    end
+                end
+            end
+
+            for name, data in pairs(groups) do
+                listView:AddLine(name, data.cams .. " cam, " .. data.monitors .. " mon")
             end
         end
 
