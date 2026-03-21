@@ -6,6 +6,7 @@
 OpiumSecurity = OpiumSecurity or {}
 OpiumSecurity.Config = OpiumSecurity.Config or {}
 OpiumSecurity.GroupNotifyJobs = OpiumSecurity.GroupNotifyJobs or {}
+OpiumSecurity.Groups = OpiumSecurity.Groups or {}
 OpiumSecurity.DetectionCooldowns = {}
 
 -- ============================================================================
@@ -14,13 +15,17 @@ OpiumSecurity.DetectionCooldowns = {}
 
 util.AddNetworkString("opium_group_jobs_request")
 util.AddNetworkString("opium_group_jobs_update")
+util.AddNetworkString("opium_group_sync")
+util.AddNetworkString("opium_group_add_manager")
+util.AddNetworkString("opium_group_remove_manager")
 
 -- ============================================================================
--- PERSISTENCE : JOBS PAR GROUPE
+-- PERSISTENCE : GROUPES ET JOBS
 -- ============================================================================
 
 local DATA_DIR = "opium_security"
 local DATA_FILE = DATA_DIR .. "/group_jobs.json"
+local GROUPS_FILE = DATA_DIR .. "/groups.json"
 
 --- Charge la configuration des jobs par groupe depuis le fichier
 function OpiumSecurity.LoadGroupJobs()
@@ -44,18 +49,226 @@ function OpiumSecurity.SaveGroupJobs()
 end
 
 --- Retourne la liste des team IDs notifiés pour un groupe
-function OpiumSecurity.GetGroupJobs(groupName)
-    return OpiumSecurity.GroupNotifyJobs[groupName] or {}
+function OpiumSecurity.GetGroupJobs(groupID)
+    return OpiumSecurity.GroupNotifyJobs[groupID] or {}
 end
 
 --- Définit la liste des team IDs notifiés pour un groupe
-function OpiumSecurity.SetGroupJobs(groupName, jobTable)
-    OpiumSecurity.GroupNotifyJobs[groupName] = jobTable
+function OpiumSecurity.SetGroupJobs(groupID, jobTable)
+    OpiumSecurity.GroupNotifyJobs[groupID] = jobTable
     OpiumSecurity.SaveGroupJobs()
 end
 
 -- Charger au démarrage
 OpiumSecurity.LoadGroupJobs()
+
+-- ============================================================================
+-- PERSISTENCE : REGISTRE DES GROUPES
+-- ============================================================================
+
+--- Charge le registre des groupes depuis le fichier
+function OpiumSecurity.LoadGroups()
+    if not file.Exists(GROUPS_FILE, "DATA") then
+        OpiumSecurity.Groups = {}
+        return
+    end
+
+    local raw = file.Read(GROUPS_FILE, "DATA")
+    local data = util.JSONToTable(raw or "")
+    OpiumSecurity.Groups = data or {}
+end
+
+--- Sauvegarde le registre des groupes
+function OpiumSecurity.SaveGroups()
+    if not file.IsDir(DATA_DIR, "DATA") then
+        file.CreateDir(DATA_DIR)
+    end
+
+    file.Write(GROUPS_FILE, util.TableToJSON(OpiumSecurity.Groups, true))
+end
+
+-- Charger au démarrage
+OpiumSecurity.LoadGroups()
+
+-- ============================================================================
+-- GESTION DES GROUPES
+-- ============================================================================
+
+--- Crée un nouveau groupe avec un ID unique
+-- @param owner Player Le joueur propriétaire
+-- @param displayName string Le nom d'affichage du groupe
+-- @return string L'ID unique du groupe
+function OpiumSecurity.CreateGroup(owner, displayName)
+    local steamID = owner:SteamID64() or "0"
+    local groupID = steamID .. "_" .. os.time() .. "_" .. math.random(1000, 9999)
+
+    OpiumSecurity.Groups[groupID] = {
+        name = displayName,
+        owner = steamID,
+        managers = {},
+    }
+
+    OpiumSecurity.SaveGroups()
+    OpiumSecurity.SyncGroupsToAll()
+
+    return groupID
+end
+
+--- Supprime un groupe du registre
+-- @param groupID string L'ID du groupe
+function OpiumSecurity.DeleteGroup(groupID)
+    OpiumSecurity.Groups[groupID] = nil
+    OpiumSecurity.GroupNotifyJobs[groupID] = nil
+    OpiumSecurity.SaveGroups()
+    OpiumSecurity.SaveGroupJobs()
+    OpiumSecurity.SyncGroupsToAll()
+end
+
+--- Vérifie si un joueur est le propriétaire d'un groupe
+function OpiumSecurity.IsGroupOwner(ply, groupID)
+    local group = OpiumSecurity.Groups[groupID]
+    if not group then return false end
+    return group.owner == (ply:SteamID64() or "0")
+end
+
+--- Vérifie si un joueur est gestionnaire d'un groupe
+function OpiumSecurity.IsGroupManager(ply, groupID)
+    local group = OpiumSecurity.Groups[groupID]
+    if not group then return false end
+
+    local steamID = ply:SteamID64() or "0"
+    for _, managerID in ipairs(group.managers) do
+        if managerID == steamID then return true end
+    end
+
+    return false
+end
+
+--- Vérifie si un joueur peut gérer un groupe (propriétaire, gestionnaire ou admin)
+function OpiumSecurity.CanManageGroup(ply, groupID)
+    if ply:IsSuperAdmin() then return true end
+    return OpiumSecurity.IsGroupOwner(ply, groupID) or OpiumSecurity.IsGroupManager(ply, groupID)
+end
+
+--- Ajoute un gestionnaire à un groupe
+function OpiumSecurity.AddManager(groupID, steamID64)
+    local group = OpiumSecurity.Groups[groupID]
+    if not group then return false end
+
+    -- Vérifier qu'il n'est pas déjà manager
+    for _, id in ipairs(group.managers) do
+        if id == steamID64 then return false end
+    end
+
+    table.insert(group.managers, steamID64)
+    OpiumSecurity.SaveGroups()
+    OpiumSecurity.SyncGroupsToAll()
+    return true
+end
+
+--- Retire un gestionnaire d'un groupe
+function OpiumSecurity.RemoveManager(groupID, steamID64)
+    local group = OpiumSecurity.Groups[groupID]
+    if not group then return false end
+
+    for i, id in ipairs(group.managers) do
+        if id == steamID64 then
+            table.remove(group.managers, i)
+            OpiumSecurity.SaveGroups()
+            OpiumSecurity.SyncGroupsToAll()
+            return true
+        end
+    end
+
+    return false
+end
+
+-- ============================================================================
+-- SYNCHRONISATION DES GROUPES VERS LES CLIENTS
+-- ============================================================================
+
+--- Envoie le registre des groupes à un joueur
+function OpiumSecurity.SyncGroupsTo(ply)
+    if not IsValid(ply) then return end
+
+    local json = util.TableToJSON(OpiumSecurity.Groups)
+
+    net.Start("opium_group_sync")
+        net.WriteUInt(string.len(json), 32)
+        net.WriteData(json, string.len(json))
+    net.Send(ply)
+end
+
+--- Envoie le registre des groupes à tous les joueurs
+function OpiumSecurity.SyncGroupsToAll()
+    local json = util.TableToJSON(OpiumSecurity.Groups)
+
+    net.Start("opium_group_sync")
+        net.WriteUInt(string.len(json), 32)
+        net.WriteData(json, string.len(json))
+    net.Broadcast()
+end
+
+-- Sync au joueur quand il spawn
+hook.Add("PlayerInitialSpawn", "OpiumSecurity_SyncGroups", function(ply)
+    -- Délai pour s'assurer que le client est prêt
+    timer.Simple(2, function()
+        if IsValid(ply) then
+            OpiumSecurity.SyncGroupsTo(ply)
+        end
+    end)
+end)
+
+-- ============================================================================
+-- RÉCEPTION RÉSEAU : GESTION DES MANAGERS
+-- ============================================================================
+
+--- Le client demande d'ajouter un gestionnaire
+net.Receive("opium_group_add_manager", function(len, ply)
+    if not IsValid(ply) then return end
+
+    local groupID = net.ReadString()
+    local targetSteamID = net.ReadString()
+
+    -- Vérifier que le joueur est propriétaire du groupe
+    if not OpiumSecurity.IsGroupOwner(ply, groupID) and not ply:IsSuperAdmin() then
+        ply:ChatPrint("[Opium Security] Seul le propriétaire peut ajouter des gestionnaires.")
+        return
+    end
+
+    if OpiumSecurity.AddManager(groupID, targetSteamID) then
+        local targetName = targetSteamID
+        for _, p in ipairs(player.GetAll()) do
+            if IsValid(p) and p:SteamID64() == targetSteamID then
+                targetName = p:Nick()
+                p:ChatPrint("[Opium Security] Vous avez été ajouté comme gestionnaire du groupe \"" .. OpiumSecurity.GetGroupName(groupID) .. "\".")
+                break
+            end
+        end
+        ply:ChatPrint("[Opium Security] " .. targetName .. " ajouté comme gestionnaire.")
+    else
+        ply:ChatPrint("[Opium Security] Ce joueur est déjà gestionnaire ou le groupe n'existe pas.")
+    end
+end)
+
+--- Le client demande de retirer un gestionnaire
+net.Receive("opium_group_remove_manager", function(len, ply)
+    if not IsValid(ply) then return end
+
+    local groupID = net.ReadString()
+    local targetSteamID = net.ReadString()
+
+    if not OpiumSecurity.IsGroupOwner(ply, groupID) and not ply:IsSuperAdmin() then
+        ply:ChatPrint("[Opium Security] Seul le propriétaire peut retirer des gestionnaires.")
+        return
+    end
+
+    if OpiumSecurity.RemoveManager(groupID, targetSteamID) then
+        ply:ChatPrint("[Opium Security] Gestionnaire retiré.")
+    else
+        ply:ChatPrint("[Opium Security] Ce joueur n'est pas gestionnaire de ce groupe.")
+    end
+end)
 
 -- ============================================================================
 -- RÉCEPTION RÉSEAU : CONFIGURATION DES JOBS
@@ -81,13 +294,7 @@ end)
 net.Receive("opium_group_jobs_update", function(len, ply)
     if not IsValid(ply) then return end
 
-    -- Vérification admin
-    if not ply:IsAdmin() and not ply:IsSuperAdmin() then
-        ply:ChatPrint("[Opium Security] Vous devez être admin pour configurer les alertes.")
-        return
-    end
-
-    local groupName = net.ReadString()
+    local groupID = net.ReadString()
     local count = net.ReadUInt(8)
     local jobs = {}
 
@@ -96,8 +303,15 @@ net.Receive("opium_group_jobs_update", function(len, ply)
         table.insert(jobs, jobID)
     end
 
-    OpiumSecurity.SetGroupJobs(groupName, jobs)
-    ply:ChatPrint("[Opium Security] Configuration des alertes pour \"" .. groupName .. "\" sauvegardée (" .. count .. " jobs).")
+    -- Vérification : propriétaire, gestionnaire ou admin
+    if not OpiumSecurity.CanManageGroup(ply, groupID) then
+        ply:ChatPrint("[Opium Security] Vous n'avez pas les droits pour configurer ce groupe.")
+        return
+    end
+
+    OpiumSecurity.SetGroupJobs(groupID, jobs)
+    local displayName = OpiumSecurity.GetGroupName(groupID)
+    ply:ChatPrint("[Opium Security] Configuration des alertes pour \"" .. displayName .. "\" sauvegardée (" .. count .. " jobs).")
 end)
 
 -- ============================================================================
@@ -140,11 +354,11 @@ hook.Add("EntityTakeDamage", "OpiumSecurity_DetectInfraction", function(target, 
         OpiumSecurity.DetectionCooldowns[steamID] = now + (cfg.DetectionCooldown or 10)
 
         -- Déterminer les jobs à notifier
-        local groupName = cam:GetCamGroup()
+        local groupID = cam:GetCamGroup()
         local notifyJobs = {}
 
-        if groupName and groupName ~= "" then
-            notifyJobs = OpiumSecurity.GetGroupJobs(groupName)
+        if groupID and groupID ~= "" then
+            notifyJobs = OpiumSecurity.GetGroupJobs(groupID)
         end
 
         -- Fallback sur les PoliceTeams si aucun job configuré

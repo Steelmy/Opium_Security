@@ -35,7 +35,7 @@ function ENT:Draw()
             end
 
             draw.SimpleText(
-                group,
+                OpiumSecurity.GetGroupName(group),
                 "DermaDefault",
                 0, 16, colors.Accent,
                 TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER

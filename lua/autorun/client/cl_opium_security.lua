@@ -6,6 +6,7 @@
 -- Sécurité : s'assurer que la table globale existe
 OpiumSecurity = OpiumSecurity or {}
 OpiumSecurity.Config = OpiumSecurity.Config or {}
+OpiumSecurity.GroupRegistry = OpiumSecurity.GroupRegistry or {}
 
 -- ============================================================================
 -- VARIABLES LOCALES
@@ -167,7 +168,8 @@ hook.Add("HUDPaint", "OpiumSecurity_CameraESP", function()
     local camLabel = currentCamera:GetCamName() .. "  |  EN DIRECT"
     local camGroup = currentCamera:GetCamGroup()
     if camGroup and camGroup ~= "" then
-        camLabel = camLabel .. "  |  " .. camGroup
+        local groupDisplayName = OpiumSecurity.GetGroupName(camGroup)
+        camLabel = camLabel .. "  |  " .. groupDisplayName
     end
     DrawTextShadow(
         camLabel,
@@ -700,4 +702,12 @@ net.Receive("opium_camera_notify", function()
         Color(180, 180, 180), " - " .. reason,
         Color(100, 180, 255), " (" .. camName .. ")"
     )
+end)
+
+-- Réception de la synchronisation du registre des groupes
+net.Receive("opium_group_sync", function()
+    local len = net.ReadUInt(32)
+    local json = net.ReadData(len)
+    local data = util.JSONToTable(json or "")
+    OpiumSecurity.GroupRegistry = data or {}
 end)

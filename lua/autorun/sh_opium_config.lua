@@ -122,3 +122,48 @@ function OpiumSecurity.HasLineOfSight(from, to, ignoreEntity)
 
     return not trace.Hit or (IsValid(trace.Entity) and trace.Entity:IsPlayer())
 end
+
+-- ============================================================================
+-- SYSTÈME DE GROUPES AVEC ID UNIQUE
+-- ============================================================================
+
+-- Registre client (synchronisé depuis le serveur)
+if CLIENT then
+    OpiumSecurity.GroupRegistry = OpiumSecurity.GroupRegistry or {}
+end
+
+--- Résout l'ID d'un groupe en nom d'affichage
+-- @param groupID string L'identifiant unique du groupe
+-- @return string Le nom d'affichage du groupe, ou l'ID si inconnu
+function OpiumSecurity.GetGroupName(groupID)
+    if not groupID or groupID == "" then return "" end
+
+    if SERVER and OpiumSecurity.Groups then
+        local group = OpiumSecurity.Groups[groupID]
+        if group then return group.name end
+    end
+
+    if CLIENT and OpiumSecurity.GroupRegistry then
+        local group = OpiumSecurity.GroupRegistry[groupID]
+        if group then return group.name end
+    end
+
+    return groupID
+end
+
+--- Récupère les infos complètes d'un groupe
+-- @param groupID string L'identifiant unique du groupe
+-- @return table|nil Les données du groupe ou nil
+function OpiumSecurity.GetGroupInfo(groupID)
+    if not groupID or groupID == "" then return nil end
+
+    if SERVER and OpiumSecurity.Groups then
+        return OpiumSecurity.Groups[groupID]
+    end
+
+    if CLIENT and OpiumSecurity.GroupRegistry then
+        return OpiumSecurity.GroupRegistry[groupID]
+    end
+
+    return nil
+end

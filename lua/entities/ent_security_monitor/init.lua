@@ -65,7 +65,8 @@ function ENT:Use(activator, caller)
     end
 
     if not IsValid(firstCam) then
-        activator:ChatPrint("[Opium Security] Aucune caméra active dans le groupe \"" .. group .. "\".")
+        local displayName = OpiumSecurity.GetGroupName(group)
+        activator:ChatPrint("[Opium Security] Aucune caméra active dans le groupe \"" .. displayName .. "\".")
         return
     end
 

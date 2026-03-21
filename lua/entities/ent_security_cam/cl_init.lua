@@ -34,7 +34,7 @@ function ENT:Draw()
         )
         if group and group ~= "" then
             draw.SimpleText(
-                group,
+                OpiumSecurity.GetGroupName(group),
                 "DermaDefault",
                 0, 32, OpiumSecurity.Config.Colors.Accent,
                 TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER
